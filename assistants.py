@@ -110,6 +110,7 @@ class Expert:
         pass
     
     def validator(self, calls):
+        """For now, just check if all calls are valid json. Longer term should validate schema, using JSON of tools."""
         for call in calls:
             try:
                 json.loads(call.function.arguments)
