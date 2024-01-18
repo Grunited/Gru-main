@@ -1,6 +1,7 @@
 from openai import OpenAI
 import time
 import asyncio
+import json
 
 STATUS_FAILURE = 2
 STATUS_COMPLETED = 1
@@ -15,7 +16,7 @@ class Expert:
         self.model = model
         self.client = OpenAI()
         if assistant_id is None:
-            assistant = self.client.assistants.create(
+            assistant = self.client.beta.assistants.create(
                 name=name,
                 tools=tools,
                 instructions=prompt,
@@ -35,17 +36,23 @@ class Expert:
         return message
     
     async def wait_for_assistant_response(self, run, poll_rate=1):
+        run = self.client.beta.threads.runs.retrieve(
+            thread_id=self.thread_id,
+            run_id=run.id
+        )
+        
         while run.status == 'queued' or run.status == 'in_progress':
-            run = self.client.beta.threads.runs.get(
+            run = self.client.beta.threads.runs.retrieve(
                 thread_id=self.thread_id,
                 run_id=run.id
             )
-            
-            time.sleep(poll_rate)
+                        
+            await asyncio.sleep(poll_rate)
         
         return run
     
     async def query(self, query):
+        print("new query")
         self.send_message(query)
         
         run = self.client.beta.threads.runs.create(
@@ -57,8 +64,8 @@ class Expert:
 
         while not completed:
             
-            run = await self.wait_for_response(run)
-            
+            run = await self.wait_for_assistant_response(run)
+                        
             # RUN LOOP
             
             while run.status in ("completed", "failed", "expired", "cancelled") or (run.status == "requires_action" and not self.validator(run.required_action.submit_tool_outputs.tool_calls)):
@@ -69,22 +76,33 @@ class Expert:
                     assistant_id=self.assistant_id
                 )
                 
-                run = await self.wait_for_response(run)
+                run = await self.wait_for_assistant_response(run)
             
             calls = run.required_action.submit_tool_outputs.tool_calls
-            
             tool_outputs, status = self.dispatcher(calls)
+            
+            print('got tool outputs')
             
             if status == STATUS_FAILURE:
                 self.debug(query)
             elif status == STATUS_COMPLETED:
                 completed = True
-            else:
                 self.client.beta.threads.runs.submit_tool_outputs(
-                thread_id=self.thread.id,
+                    thread_id=self.thread_id,
+                    run_id=run.id,
+                    tool_outputs = tool_outputs
+                )
+            else:
+                print('submitting tool outputs')
+                self.client.beta.threads.runs.submit_tool_outputs(
+                thread_id=self.thread_id,
                 run_id=run.id,
                 tool_outputs = tool_outputs
             )
+                
+            await asyncio.sleep(0.5)
+            
+            print('done sleeping')
                 
         return
             
@@ -92,7 +110,13 @@ class Expert:
         pass
     
     def validator(self, calls):
-        pass
+        for call in calls:
+            try:
+                json.loads(call.function.arguments)
+            except:
+                return False
+        
+        return True
         
     def debug(self, query):
         pass
