@@ -11,6 +11,7 @@ import asyncio
 
 dotenv.load_dotenv()
     
+NEWLINE_CHARACTER = '\n'
 
 # class SpotifyExpert(Expert):
 #     scope = "user-library-read playlist-modify-public"
@@ -368,6 +369,135 @@ mark_error_function = {
     }
 }
 
+add_to_queue_function = {
+    "type": "function",
+    "function": {
+        "name": "add_to_queue",
+        "description": "Adds a song to the end of a user’s queue. If device A is currently playing music and you try to add to the queue and pass in the id for device B, you will get a ‘Player command failed: Restriction violated’ error. I therefore recommend leaving device_id as None so that the active device is targeted",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uri": {
+                    "type": "string",
+                    "description": "The Spotify URI for the track. Example: spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "The id of the device this command is targeting. If not supplied, the user's currently active device is the target."
+                }
+            },
+            "required": ["uri"]
+        }
+    }
+}
+
+playlist_function = {
+    "type": "function",
+    "function": {
+        "name": "playlist",
+        "description": "Returns a playlist given the playlist's ID, URI or URL",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "playlist_id": {
+                    "type": "string",
+                    "description": "The Spotify URI for the playlist. Example: spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"
+                },
+                "market": {
+                    "type": "string",
+                    "description": "An ISO 3166-1 alpha-2 country code. Provide this parameter if you want to apply Track Relinking."
+                },
+                "additional_types":  {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["track", "episode"]
+                    }
+                }
+            },
+            "required": ["playlist_id"]
+        }
+    }
+}
+
+playlist_items_function = {
+    "type": "function",
+    "function": {
+        "name": "playlist_items",
+        "description": "Get full details of the tracks or episodes of a Spotify playlist",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "playlist_id": {
+                    "type": "string",
+                    "description": "The Spotify URI for the playlist. Example: spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                    },
+                    "description": "An array of the fields to return. If omitted, all fields are returned."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "The maximum number of items to return. Default: 20. Minimum: 1. Maximum: 50.",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 50
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "The index of the first item to return. Default: 0 (the first item). Use with limit to get the next set of items.",
+                    "default": 0,
+                    "minimum": 0
+                },
+                "market": {
+                    "type": "string",
+                    "description": "An ISO 3166-1 alpha-2 country code. Provide this parameter if you want to apply Track Relinking."
+                }
+            },
+            "required": ["playlist_id"]
+        }
+    }
+}
+
+queue_function = {
+    "type": "function",
+    "function": {
+        "name": "queue",
+        "description": "Get the user’s current playback queue"
+    }
+}
+
+current_user_playlists_function = {
+    "type": "function",
+    "function": {
+        "name": "current_user_playlists",
+        "description": "Get a list of the playlists owned or followed by the current Spotify user",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "The maximum number of items to return. Default: 20. Minimum: 1. Maximum: 50.",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 50
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "The index of the first item to return. Default: 0 (the first item). Use with limit to get the next set of items.",
+                    "default": 0,
+                    "minimum": 0
+                }
+            }
+        }
+    }
+}
+
+
+
 tools = [
     artist_function,
     artist_top_tracks_function,
@@ -380,7 +510,12 @@ tools = [
     track_function,
     artist_albums_function,
     mark_completed_function,
-    mark_error_function]
+    mark_error_function,
+    add_to_queue_function,
+    playlist_function,
+    playlist_items_function,
+    queue_function,
+    current_user_playlists_function]
 
 class SpotifyExpert(Expert):
     scopes = [
@@ -398,19 +533,8 @@ class SpotifyExpert(Expert):
     def __init__(self, assistant_id: Optional[str]=None):
         self.spotify_client = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=' '.join(self.scopes)))
 
-        super().__init__(tools=tools, prompt="""You are an expert in the Spotify API. You can call the following commands: 
-                        - artist
-                        - artist_top_tracks
-                        - current_playback
-                        - next
-                        - search
-                        - start_playback
-                        - album
-                        - next_track
-                        - track
-                        - artist_albums
-                        - mark_completed
-                        - mark_failure
+        super().__init__(tools=tools, prompt=f"""You are an expert in the Spotify API. You can call the following commands: 
+                        {NEWLINE_CHARACTER.join(['- ' + tool["function"]["name"] for tool in tools])}
                         
                         Using these, you help users with their tasks. For example,
                         
@@ -456,33 +580,41 @@ class SpotifyExpert(Expert):
             func = tool_call.function
             print(func)
             arguments = json.loads(func.arguments)
-            if func.name == "mark_completed":
+            if func.name == mark_completed_function["function"]["name"]:
                 obj["output"] = "success"
                 return ([obj], STATUS_COMPLETED)
-            elif func.name == "mark_error":
+            elif func.name == mark_error_function["function"]["name"]:
                 obj["output"] = "marked error"
                 return ([obj], STATUS_FAILURE)
             else:
-                if func.name == "artist":
+                if func.name == artist_function["function"]["name"]:
                     obj["output"] = self.spotify_client.artist(**arguments)
-                elif func.name == "artist_top_tracks":
+                elif func.name == artist_top_tracks_function["function"]["name"]:
                     obj["output"] = self.spotify_client.artist_top_tracks(**arguments) 
-                elif func.name == "current_playback":
+                elif func.name == current_playback_function["function"]["name"]:
                     obj["output"] = self.spotify_client.current_user_playing_track() 
-                elif func.name == "next":
+                elif func.name == next_function["function"]["name"]:
                     obj["output"] = self.spotify_client.next_track()
-                elif func.name == "search":
+                elif func.name == search_function["function"]["name"]:
                     obj["output"] = self.spotify_client.search(**arguments)
-                elif func.name == "start_playback":
+                elif func.name == start_playback_function["function"]["name"]:
                     obj["output"] = self.spotify_client.start_playback(**arguments)
-                elif func.name == "album":
+                elif func.name == album_function["function"]["name"]:
                     obj["output"] = self.spotify_client.album(**arguments)
-                elif func.name == "next_track":
+                elif func.name == next_track_function["function"]["name"]:
                     obj["output"] = self.spotify_client.next_track()
-                elif func.name == "track":
+                elif func.name ==  track_function["function"]["name"]:
                     obj["output"] = self.spotify_client.track(**arguments)
-                elif func.name == "artist_albums":
+                elif func.name == artist_albums_function["function"]["name"]:
                     obj["output"] = self.spotify_client.artist_albums(**arguments)
+                elif func.name == add_to_queue_function["function"]["name"]:
+                    obj["output"] = self.spotify_client.add_to_queue(**arguments)
+                elif func.name == playlist_function["function"]["name"]:
+                    obj["output"] = self.spotify_client.playlist(**arguments)
+                elif func.name == playlist_items_function["function"]["name"]:
+                    obj["output"] = self.spotify_client.playlist_items(**arguments)
+                elif func.name == queue_function["function"]["name"]:
+                    obj["output"] = self.spotify_client.queue(**arguments)
                 if obj["output"] is None:
                     obj["output"] = "success"
             
