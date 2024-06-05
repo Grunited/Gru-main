@@ -154,12 +154,22 @@ def combine_boxes(icons_bounding_boxes, max_area=160000):
 
     return combined_boxes
 
-def draw_boxes(image_data, boxes, color='red', outline='blue'):
+def draw_boxes(image_data, boxes, color='red', outline='blue', shuffle_colors=True):
+    colors = ['red', 'green', 'blue', 'purple', 'darkgreen', 'mediumorchid', 'mediumblue', 'crimson', 'pink', 'cyan']
+    # now we want to shuffle the colors
+    np.random.shuffle(colors)
     draw = ImageDraw.Draw(image_data)
-    for box in boxes:
+    for ind, box in enumerate(boxes):
+        if shuffle_colors:
+            color = colors[ind % len(colors)]
         x, y, w, h = box["x"], box["y"], box["width"], box["height"]
         draw.rectangle([(x, y), (x + w, y + h)], outline=color)
+        
+        # add a label for the rectangle using the index
+        draw.rectangle([(x, y-13), (x + 15, y)], fill=color)
+        draw.text((x + 2, y-10), str(ind), fill='white')
     return image_data
+
 
 def main(image_path, description="cat", debug=True):
     image_data = Image.open(image_path)
